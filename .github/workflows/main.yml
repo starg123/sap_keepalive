@@ -1,0 +1,48 @@
+name: SAP CF APP 保活
+
+on:
+  schedule:
+    - cron: "15,35,55 0 * * *"   # UTC 时间，每天 0:15、0:35、0:55
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: 安装 Cloud Foundry CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -q -O cf-cli.deb "https://packages.cloudfoundry.org/stable?release=debian64&source=github"
+          sudo dpkg -i cf-cli.deb
+
+      - name: 登录 CF
+        run: |
+          cf api $CF_API
+          cf login -u "$CF_USERNAME" -p "$CF_PASSWORD" -o "$CF_ORG" -s "$CF_SPACE"
+        env:
+          CF_USERNAME: ${{ secrets.CF_USERNAME }}
+          CF_PASSWORD: ${{ secrets.CF_PASSWORD }}
+          CF_API:      ${{ secrets.CF_API }}
+          CF_ORG:      ${{ secrets.CF_ORG }}
+          CF_SPACE:    ${{ secrets.CF_SPACE }}
+
+      - name: 设置健康检查方式
+        run: cf set-health-check "$CF_APP" process
+        env:
+          CF_APP: ${{ secrets.CF_APP }}
+
+      - name: 检查并启动应用
+        run: |
+          STATUS=$(cf app "$CF_APP" | grep '#0' | awk '{print $2}')
+          echo "当前状态: $STATUS"
+          if [ "$STATUS" != "running" ]; then
+            echo "应用未运行，执行 cf start..."
+            cf start "$CF_APP"
+          else
+            echo "应用正常运行中。"
+          fi
+        env:
+          CF_APP: ${{ secrets.CF_APP }}
